@@ -1,0 +1,33 @@
+[package]
+name = "medflow-license"
+version = "0.1.0"
+description = "MedFlow offline license keys: machine codes, Ed25519-signed activation keys, BIP39 seed phrases. Shared by the desktop verifier and the Key Maker."
+edition = "2021"
+publish = false
+
+# No Tauri, no platform code in the default build: the desktop verifier and the
+# Android Key Maker compile exactly the same key-format and signing code.
+[features]
+default = ["phrase"]
+# 24-word BIP39 recovery phrase for the 32-byte signing seed (Key Maker).
+phrase = ["dep:bip39"]
+# Read this computer's OS machine id (desktop + dev CLI only; never on Android).
+host = ["dep:machine-uid"]
+# The dev-only `medflow-keygen` binary.
+cli = ["host", "phrase"]
+
+[dependencies]
+ed25519-dalek = { version = "2", features = ["std"] }
+base64 = "0.22"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+hex = "0.4"
+getrandom = "0.2"
+bip39 = { version = "2.2", optional = true }
+machine-uid = { version = "0.5", optional = true }
+
+[[bin]]
+name = "medflow-keygen"
+path = "src/bin/medflow-keygen.rs"
+required-features = ["cli"]

@@ -1,0 +1,14 @@
+# MedFlow Key Maker — the vendor's private Android app that signs license keys.
+# NEVER shipped to doctors and never part of the desktop release pipeline.
+#
+# `core` holds every piece of security logic (vault, TOTP, lockout, issuance)
+# with no Tauri dependency, so `cargo test -p medflow-keymaker-core` runs on any
+# host. `src-tauri` is the thin command layer the Android app runs.
+[workspace]
+members = ["core", "src-tauri"]
+resolver = "2"
+
+[profile.release]
+strip = "symbols"
+lto = true
+codegen-units = 1

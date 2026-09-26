@@ -1,0 +1,33 @@
+[package]
+name = "medflow-keymaker"
+version = "1.0.0"
+description = "MedFlow Key Maker — the vendor's private Android app that signs MedFlow license keys. Never shipped to doctors."
+authors = ["MedFlow"]
+edition = "2021"
+publish = false
+
+[lib]
+# Tauri mobile loads the app as a shared library named `<crate>_lib`.
+name = "medflow_keymaker_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+medflow-keymaker-core = { path = "../core" }
+tauri = { version = "2", features = [] }
+# Copy a key / the public-key row. Never used for the recovery phrase.
+tauri-plugin-clipboard-manager = "2"
+# "Save .mflic file" / "Save backup" / "Restore from file" (Android: the
+# system file picker, content:// URIs read and written through plugin-fs).
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+# Hands the otpauth:// link to an authenticator app on this phone.
+tauri-plugin-opener = "2"
+# Android share sheet (text to WhatsApp, files to Drive/e-mail). The official
+# plugin set has no share plugin and Android WebView has no Web Share API.
+# Small MIT plugin (ACTION_SEND + FileProvider); reviewed at 0.3.1.
+tauri-plugin-sharekit = "=0.3.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

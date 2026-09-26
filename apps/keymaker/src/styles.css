@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Fonts are bundled (@fontsource) — the app has no internet access. */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+  background: #0e343f;
+  color: #11181b;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overflow: hidden; /* each screen owns its scroll area */
+  user-select: none;
+}
+
+input,
+textarea,
+.select-text {
+  user-select: text;
+}
+
+::selection {
+  background: #c8eefa;
+  color: #134b5e;
+}
+
+@layer components {
+  .focus-ring:focus-visible {
+    outline: 3px solid #5bb8d4;
+    outline-offset: 2px;
+  }
+}

@@ -1,0 +1,207 @@
+name: Key Maker Android APK (private)
+
+# Build-only mirror of the vendor's private license-key app (apps/keymaker).
+# THIS REPOSITORY IS PUBLIC. The APK is a short-lived artifact of this run —
+# never attached to a release. Public-repo artifacts can be downloaded by
+# anyone; that is acceptable because the APK contains no secret (the license
+# signing key is created on the owner's phone and never leaves it).
+#
+# Public-repo rules for this file:
+# - NO pull_request / pull_request_target triggers: only the owner's own
+#   pushes and manual runs may ever reach the signing secrets.
+# - Secrets are only passed through `env:` and never echoed or printed.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - apps/keymaker/**
+      - crates/medflow-license/**
+      - package.json
+      - pnpm-workspace.yaml
+      - pnpm-lock.yaml
+      - tsconfig.base.json
+      - .github/workflows/keymaker-android.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: keymaker-android
+  cancel-in-progress: false
+
+jobs:
+  build-apk:
+    name: Build, sign and check the Key Maker APK
+    # Forks have no secrets and must not burn a 30-minute build to fail.
+    if: github.repository == 'is-bo/medflow-keymaker-build'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    defaults:
+      run:
+        shell: bash
+    env:
+      CI: "true"
+      RUST_TOOLCHAIN: "1.96.0"
+      # Pinned Android toolchain. NDK r27c; build-tools 35 has `zipalign -P`
+      # (16 KB page alignment, required on newer Android versions).
+      NDK_VERSION: "27.2.12479018"
+      ANDROID_PLATFORM: "android-36"
+      BUILD_TOOLS_VERSION: "35.0.0"
+      KEYMAKER_DIR: apps/keymaker
+      APK_UNSIGNED: apps/keymaker/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk
+
+    steps:
+      - name: Check out reviewed source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.sha }}
+          # No token left in .git/config for later steps to find.
+          persist-credentials: false
+
+      # Fail in seconds, not after a 20-minute build. There is deliberately NO
+      # fallback to a debug key: an APK signed with a different key cannot
+      # update the installed app, and uninstalling it would delete the vault.
+      - name: Require the stable signing keystore
+        env:
+          KEYMAKER_KEYSTORE_B64: ${{ secrets.KEYMAKER_KEYSTORE_B64 }}
+          KEYMAKER_KEYSTORE_PASSWORD: ${{ secrets.KEYMAKER_KEYSTORE_PASSWORD }}
+          KEYMAKER_KEY_ALIAS: ${{ secrets.KEYMAKER_KEY_ALIAS }}
+          KEYMAKER_KEY_PASSWORD: ${{ secrets.KEYMAKER_KEY_PASSWORD }}
+        run: |
+          missing=0
+          for name in KEYMAKER_KEYSTORE_B64 KEYMAKER_KEYSTORE_PASSWORD KEYMAKER_KEY_ALIAS KEYMAKER_KEY_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Repository secret $name is missing. See apps/keymaker/README.md (\"One-time: create the signing key\")."
+              missing=1
+            fi
+          done
+          [ "$missing" -eq 0 ] || exit 1
+          if ! printf '%s' "$KEYMAKER_KEYSTORE_B64" | base64 -d > /dev/null 2>&1; then
+            echo "::error::KEYMAKER_KEYSTORE_B64 is not valid base64."
+            exit 1
+          fi
+
+      - name: Use Java 17
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.x
+
+      - name: Install pinned Android SDK packages and NDK
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKMANAGER" || { echo "::error::sdkmanager not found under \$ANDROID_HOME"; exit 1; }
+          yes | "$SDKMANAGER" --licenses > /dev/null
+          "$SDKMANAGER" --install \
+            "platform-tools" \
+            "platforms;${ANDROID_PLATFORM}" \
+            "build-tools;${BUILD_TOOLS_VERSION}" \
+            "ndk;${NDK_VERSION}" > /dev/null
+          echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+          echo "BUILD_TOOLS=$ANDROID_HOME/build-tools/$BUILD_TOOLS_VERSION" >> "$GITHUB_ENV"
+          test -f "$ANDROID_HOME/ndk/$NDK_VERSION/source.properties"
+
+      - name: Install pinned Rust toolchain with Android targets
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --no-self-update \
+            --target aarch64-linux-android --target armv7-linux-androideabi
+          rustup show active-toolchain
+
+      - name: Install pnpm
+        run: npm install --global pnpm@11.1.0
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Test the security core (vault, TOTP, lockout, issuance)
+        working-directory: ${{ env.KEYMAKER_DIR }}
+        run: cargo test -p medflow-keymaker-core --locked
+
+      - name: Typecheck and test the UI
+        run: |
+          pnpm --filter @medflow/keymaker typecheck
+          pnpm --filter @medflow/keymaker test
+
+      - name: Generate the Android project
+        working-directory: ${{ env.KEYMAKER_DIR }}
+        run: pnpm tauri android init --ci --skip-targets-install
+
+      - name: Apply Key Maker hardening (no INTERNET in release, FLAG_SECURE, no backup)
+        working-directory: ${{ env.KEYMAKER_DIR }}
+        run: node scripts/patch-android.mjs
+
+      - name: Generate launcher icons into the Android project
+        working-directory: ${{ env.KEYMAKER_DIR }}
+        run: pnpm tauri icon src-tauri/icons/app-icon.svg
+
+      - name: Build the release APK (unsigned)
+        working-directory: ${{ env.KEYMAKER_DIR }}
+        run: pnpm tauri android build --apk --ci --target aarch64 --target armv7
+
+      - name: Align and sign with the stable keystore
+        env:
+          KEYMAKER_KEYSTORE_B64: ${{ secrets.KEYMAKER_KEYSTORE_B64 }}
+          KS_PASS: ${{ secrets.KEYMAKER_KEYSTORE_PASSWORD }}
+          KEY_PASS: ${{ secrets.KEYMAKER_KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEYMAKER_KEY_ALIAS }}
+        run: |
+          test -f "$APK_UNSIGNED" || { echo "::error::Unsigned APK not found at $APK_UNSIGNED"; ls -R "$(dirname "$(dirname "$APK_UNSIGNED")")" || true; exit 1; }
+          KEYSTORE="$RUNNER_TEMP/keymaker-release.jks"
+          trap 'rm -f "$KEYSTORE"' EXIT
+          printf '%s' "$KEYMAKER_KEYSTORE_B64" | base64 -d > "$KEYSTORE"
+          mkdir -p out
+          "$BUILD_TOOLS/zipalign" -P 16 -f 4 "$APK_UNSIGNED" out/aligned.apk
+          "$BUILD_TOOLS/apksigner" sign \
+            --ks "$KEYSTORE" --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass env:KS_PASS --key-pass env:KEY_PASS \
+            --out out/medflow-keymaker.apk out/aligned.apk
+          rm -f out/aligned.apk out/medflow-keymaker.apk.idsig
+          "$BUILD_TOOLS/apksigner" verify --verbose out/medflow-keymaker.apk
+
+      - name: Verify the hardening in the signed APK
+        run: |
+          APK=out/medflow-keymaker.apk
+          PERMS="$("$BUILD_TOOLS/aapt2" dump permissions "$APK")"
+          echo "$PERMS"
+          if echo "$PERMS" | grep -q "android.permission.INTERNET"; then
+            echo "::error::The release APK still requests INTERNET."
+            exit 1
+          fi
+          TREE="$("$BUILD_TOOLS/aapt2" dump xmltree --file AndroidManifest.xml "$APK")"
+          if ! echo "$TREE" | grep -E "android:allowBackup\([^)]*\)=(false|0x0)" > /dev/null; then
+            echo "::error::allowBackup is not false in the release manifest."
+            echo "$TREE" | grep -i backup || true
+            exit 1
+          fi
+          if echo "$TREE" | grep -E "android:debuggable\([^)]*\)=(true|0xffffffff)" > /dev/null; then
+            echo "::error::The release APK is debuggable."
+            exit 1
+          fi
+          grep -rq "FLAG_SECURE" "$KEYMAKER_DIR/src-tauri/gen/android/app/src/main" \
+            || { echo "::error::FLAG_SECURE patch missing from MainActivity."; exit 1; }
+
+      - name: Summarise the build
+        run: |
+          APK=out/medflow-keymaker.apk
+          CERT="$("$BUILD_TOOLS/apksigner" verify --print-certs "$APK" | grep -m1 "SHA-256 digest" | sed 's/.*: //')"
+          {
+            echo "### MedFlow Key Maker APK"
+            echo "- Version: $(node -p "require('./$KEYMAKER_DIR/src-tauri/tauri.conf.json').version")"
+            echo "- APK SHA-256: \`$(sha256sum "$APK" | cut -d' ' -f1)\`"
+            echo "- Signing certificate SHA-256: \`$CERT\` — must be the same on every build, or Android refuses the update."
+            echo "- Workflow artifact (public repo: anyone can download it; it holds no secret), deleted automatically after 3 days."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the signed APK (workflow artifact only, short-lived)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: medflow-keymaker-apk-${{ github.run_number }}
+          path: out/medflow-keymaker.apk
+          if-no-files-found: error
+          retention-days: 3

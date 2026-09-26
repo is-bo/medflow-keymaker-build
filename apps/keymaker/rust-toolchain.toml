@@ -1,0 +1,6 @@
+# Same toolchain as the desktop (apps/desktop/src-tauri/rust-toolchain.toml).
+# Android targets are added by the CI workflow, not here, so a host-only
+# `cargo test` never downloads Android standard libraries.
+[toolchain]
+channel = "1.96.0"
+profile = "minimal"

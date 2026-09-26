@@ -1,0 +1,5 @@
+# DEV signing seed written by `medflow-keygen gen-dev-key`. A private key —
+# never commit it (the repo-root .gitignore carries the same rule).
+/dev-keys/
+*.mfseed
+/target/

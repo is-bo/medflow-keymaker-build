@@ -1,0 +1,30 @@
+{
+  "identifier": "default",
+  "description": "Key Maker window: clipboard write (keys and the public-key row only), system file picker for .mflic / backup / CSV, file read/write through the paths the picker returns, otpauth:// hand-off to an authenticator app, and the Android share sheet. No HTTP, no shell.",
+  "windows": [
+    "main"
+  ],
+  "platforms": [
+    "android",
+    "windows",
+    "linux",
+    "macOS"
+  ],
+  "permissions": [
+    "core:default",
+    "clipboard-manager:allow-write-text",
+    "dialog:allow-save",
+    "dialog:allow-open",
+    "fs:allow-write-text-file",
+    "fs:allow-read-text-file",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        {
+          "url": "otpauth://*"
+        }
+      ]
+    },
+    "sharekit:default"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "name": "medflow-keymaker-build",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Build-only mirror of the private MedFlow Key Maker Android app. See README.md.",
+  "packageManager": "pnpm@11.1.0",
+  "scripts": {
+    "typecheck": "pnpm --filter @medflow/keymaker typecheck",
+    "test": "pnpm --filter @medflow/keymaker test",
+    "build": "pnpm --filter @medflow/keymaker build"
+  }
+}
