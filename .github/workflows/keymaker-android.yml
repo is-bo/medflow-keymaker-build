@@ -97,7 +97,9 @@ jobs:
         run: |
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           test -x "$SDKMANAGER" || { echo "::error::sdkmanager not found under \$ANDROID_HOME"; exit 1; }
-          yes | "$SDKMANAGER" --licenses > /dev/null
+          # `yes` dies of SIGPIPE once sdkmanager stops reading; under pipefail that
+          # would fail the step even though every licence was accepted.
+          (yes || true) | "$SDKMANAGER" --licenses > /dev/null
           "$SDKMANAGER" --install \
             "platform-tools" \
             "platforms;${ANDROID_PLATFORM}" \
